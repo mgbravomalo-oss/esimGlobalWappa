@@ -1,0 +1,11 @@
+{
+  "name": "eSIM Global",
+  "short_name": "eSIM Global",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#059669",
+  "description": "Plataforma de conectividad eSIM internacional, perfiles de datos y códigos QR para viajeros.",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false
+}
