@@ -383,7 +383,7 @@ Genera una respuesta concisa en JSON estricto con:
 // ----------------------------------------------------
 // VITE & SERVER INITIALIZATION
 // ----------------------------------------------------
-async function startServer() {
+export async function startServer() {
   // Connect to MongoDB Atlas
   try {
     await connectToDatabase();
@@ -405,9 +405,15 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Wappa eSIM Server running on http://localhost:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Wappa eSIM Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

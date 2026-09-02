@@ -238,15 +238,22 @@ let connectionPromise: Promise<typeof mongoose> | null = null;
 let lastError: string | null = null;
 
 export async function connectToDatabase(): Promise<boolean> {
-  const rawUri = (process.env.MONGODB_URI || process.env.MONGO_URI || '').trim().replace(/^["']+|["']+$/g, '');
+  const rawUri = (
+    process.env.MONGODB_URI ||
+    process.env.MONGO_URI ||
+    process.env.DATABASE_URL ||
+    process.env.MONGODB_URL ||
+    ''
+  ).trim().replace(/^["']+|["']+$/g, '');
 
   if (!rawUri) {
-    console.info('ℹ️ MONGODB_URI is not defined. The app will run in local fallback mode until configured in Settings.');
+    lastError = 'No se encontró la variable MONGODB_URI (o MONGO_URI) en las variables de entorno.';
+    console.info('ℹ️ MONGODB_URI is not defined. The app will run in local fallback mode until configured in Settings or Vercel.');
     return false;
   }
 
   if (!rawUri.startsWith('mongodb://') && !rawUri.startsWith('mongodb+srv://')) {
-    lastError = 'Invalid scheme, expected connection string to start with "mongodb://" or "mongodb+srv://"';
+    lastError = 'Cadena de conexión inválida: Debe comenzar con "mongodb://" o "mongodb+srv://".';
     console.warn(`⚠️ ${lastError}`);
     return false;
   }
@@ -257,18 +264,23 @@ export async function connectToDatabase(): Promise<boolean> {
   }
 
   if (currentState === mongoose.ConnectionStates.connecting && connectionPromise) {
-    await connectionPromise;
-    return isDatabaseConnected();
+    try {
+      await connectionPromise;
+      return isDatabaseConnected();
+    } catch {
+      // Continue to retry if previous attempt failed
+    }
   }
 
   try {
-    console.log('🔄 Connecting to MongoDB Atlas database (plan)...');
+    console.log('🔄 Connecting to MongoDB Atlas database...');
     
-    // Explicitly target database 'plan' where the 3,064 plans are located
+    // Explicitly target database 'plan' (or MONGODB_DB_NAME if provided)
     connectionPromise = mongoose.connect(rawUri, {
       dbName: process.env.MONGODB_DB_NAME || 'plan',
-      serverSelectionTimeoutMS: 8000,
-      connectTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 15000,
+      bufferCommands: false, // Prevents hanging serverless invocations if not connected
     });
 
     await connectionPromise;
