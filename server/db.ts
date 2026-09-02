@@ -2,6 +2,9 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 import { DESTINATIONS as FALLBACK_DESTINATIONS, ESIM_PLANS as FALLBACK_PLANS, DEMO_USERS as FALLBACK_USERS, DEMO_USER_ESIMS as FALLBACK_USER_ESIMS } from '../src/data/esimData';
 import { Destination, EsimPlan, User, UserEsim } from '../src/types';
 
+// Fail fast when MongoDB is offline / unconfigured so in-memory fallback responds instantly
+mongoose.set('bufferCommands', false);
+
 // ----------------------------------------------------
 // Helper for Country Flags
 // ----------------------------------------------------
@@ -238,23 +241,33 @@ let connectionPromise: Promise<typeof mongoose> | null = null;
 let lastError: string | null = null;
 
 export async function connectToDatabase(): Promise<boolean> {
-  const rawUri = (
-    process.env.MONGODB_URI ||
-    process.env.MONGO_URI ||
-    process.env.DATABASE_URL ||
-    process.env.MONGODB_URL ||
-    ''
-  ).trim().replace(/^["']+|["']+$/g, '');
+  const rawUri = (process.env.MONGODB_URI || process.env.MONGO_URI || '').trim().replace(/^["']+|["']+$/g, '');
 
   if (!rawUri) {
-    lastError = 'No se encontró la variable MONGODB_URI (o MONGO_URI) en las variables de entorno.';
-    console.info('ℹ️ MONGODB_URI is not defined. The app will run in local fallback mode until configured in Settings or Vercel.');
+    lastError = null;
+    return false;
+  }
+
+  // Check if rawUri is a placeholder or template string (e.g. contains <cluster>, <user>, etc.)
+  if (
+    rawUri.includes('<') ||
+    rawUri.includes('>') ||
+    rawUri.includes('your-cluster') ||
+    rawUri.includes('YOUR_') ||
+    rawUri.includes('<cluster>') ||
+    rawUri.includes('username:password') ||
+    rawUri.includes('user:password') ||
+    rawUri.includes('undefined') ||
+    rawUri.includes('example.com')
+  ) {
+    lastError = 'El valor de MONGODB_URI contiene marcadores de posición (<cluster>, <user>, etc.). Catálogo local de respaldo activo.';
+    console.info(`ℹ️ ${lastError}`);
     return false;
   }
 
   if (!rawUri.startsWith('mongodb://') && !rawUri.startsWith('mongodb+srv://')) {
-    lastError = 'Cadena de conexión inválida: Debe comenzar con "mongodb://" o "mongodb+srv://".';
-    console.warn(`⚠️ ${lastError}`);
+    lastError = 'Formato no válido: la cadena de conexión debe comenzar con "mongodb://" o "mongodb+srv://"';
+    console.info(`ℹ️ ${lastError}`);
     return false;
   }
 
@@ -268,19 +281,19 @@ export async function connectToDatabase(): Promise<boolean> {
       await connectionPromise;
       return isDatabaseConnected();
     } catch {
-      // Continue to retry if previous attempt failed
+      connectionPromise = null;
+      return false;
     }
   }
 
   try {
     console.log('🔄 Connecting to MongoDB Atlas database...');
     
-    // Explicitly target database 'plan' (or MONGODB_DB_NAME if provided)
+    // Explicitly target database 'plan' where the plans are located
     connectionPromise = mongoose.connect(rawUri, {
       dbName: process.env.MONGODB_DB_NAME || 'plan',
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 15000,
-      bufferCommands: false, // Prevents hanging serverless invocations if not connected
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 6000,
     });
 
     await connectionPromise;
@@ -292,8 +305,9 @@ export async function connectToDatabase(): Promise<boolean> {
 
     return true;
   } catch (err: any) {
+    connectionPromise = null;
     lastError = err?.message || 'Unknown MongoDB connection error';
-    console.error('❌ Failed to connect to MongoDB Atlas:', lastError);
+    console.warn(`⚠️ MongoDB connection unavailable (${lastError}). The app will seamlessly serve data from the in-memory eSIM catalog.`);
     return false;
   }
 }

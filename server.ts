@@ -381,14 +381,28 @@ Genera una respuesta concisa en JSON estricto con:
 });
 
 // ----------------------------------------------------
+// DATABASE OFFLINE FALLBACK ERROR MIDDLEWARE
+// ----------------------------------------------------
+app.use((err: any, req: Request, res: Response, next: any) => {
+  if (err && (err.name === 'MongooseError' || err.name === 'MongoNetworkError' || (err.message && err.message.includes('buffering timed out')))) {
+    console.warn('[AI Studio] Database offline or timed out — returning graceful fallback');
+    if (req.method === 'GET') {
+      return res.json({ success: true, count: 0, items: [] });
+    }
+    return res.status(503).json({ success: false, error: 'Database offline — operation not completed' });
+  }
+  next(err);
+});
+
+// ----------------------------------------------------
 // VITE & SERVER INITIALIZATION
 // ----------------------------------------------------
-export async function startServer() {
-  // Connect to MongoDB Atlas
+async function startServer() {
+  // Connect to MongoDB Atlas (if configured)
   try {
     await connectToDatabase();
-  } catch (err) {
-    console.error('Initial MongoDB Atlas connection attempt error:', err);
+  } catch (err: any) {
+    console.warn('Initial database connection note:', err?.message || err);
   }
 
   if (process.env.NODE_ENV !== 'production') {
@@ -405,15 +419,9 @@ export async function startServer() {
     });
   }
 
-  if (!process.env.VERCEL) {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Wappa eSIM Server running on http://localhost:${PORT}`);
-    });
-  }
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Wappa eSIM Server running on http://localhost:${PORT}`);
+  });
 }
 
-if (!process.env.VERCEL) {
-  startServer();
-}
-
-export default app;
+startServer();
